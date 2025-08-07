@@ -9,6 +9,7 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import org.jetbrains.jewel.bridge.addComposeTab
 import org.jetbrains.jewel.foundation.JewelFlags
+import org.jetbrains.jewel.samples.ideplugin.MarkdownShowcaseTab
 import javax.swing.JComponent
 
 internal class JewelDemoToolWindowFactory : ToolWindowFactory, DumbAware {
@@ -20,6 +21,8 @@ internal class JewelDemoToolWindowFactory : ToolWindowFactory, DumbAware {
       DevkitComposeBundle.message("jewel.tw.tab.title.components"),
       focusOnClickInside = true,
     ) { ComponentShowcaseTab(project) }
+
+    toolWindow.addComposeTab(DevkitComposeBundle.message("jewel.tw.tab.title.markdown")) { MarkdownShowcaseTab(project) }
 
     toolWindow.addComposeTab(
       DevkitComposeBundle.message("jewel.tw.tab.title.releases.demo"),
