@@ -17,10 +17,10 @@ import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -31,10 +31,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import org.jetbrains.jewel.foundation.lazy.SelectableLazyColumn
-import org.jetbrains.jewel.foundation.lazy.items
 import org.jetbrains.jewel.foundation.lazy.rememberSelectableLazyListState
 import org.jetbrains.jewel.foundation.lazy.tree.buildTree
 import org.jetbrains.jewel.foundation.theme.JewelTheme
@@ -48,6 +46,7 @@ import org.jetbrains.jewel.ui.component.RadioButtonChip
 import org.jetbrains.jewel.ui.component.SimpleListItem
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.component.ToggleableChip
+import org.jetbrains.jewel.ui.component.search.SelectableSpeedSearchLazyColumn
 import org.jetbrains.jewel.ui.theme.colorPalette
 
 @Composable
@@ -169,22 +168,21 @@ public fun TreeSample(modifier: Modifier = Modifier) {
 
 @Composable
 public fun SelectableLazyColumnSample(modifier: Modifier = Modifier) {
-    var listOfItems by remember { mutableStateOf(emptyList<String>()) }
-
-    LaunchedEffect(Unit) {
-        @Suppress("InjectDispatcher") // Ok for demo code
-        launch { listOfItems = withContext(Dispatchers.Default) { List(1_000_000) { "Item $it" } } }
-    }
+    val listOfItems by
+        produceState(emptyList()) {
+            delay(1500)
+            withContext(Dispatchers.Default) { value = List(1_000_000) { "Item $it" } }
+        }
 
     val state = rememberSelectableLazyListState()
     Box(modifier = modifier.size(200.dp, 200.dp)) {
         if (listOfItems.isEmpty()) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         } else {
-            SelectableLazyColumn(modifier = Modifier.focusable(), state = state) {
-                items(listOfItems, key = { item -> item }) { item ->
+            SelectableSpeedSearchLazyColumn(modifier = Modifier.focusable(), state = state) {
+                items(listOfItems, textContent = { item -> item }, key = { item -> item }) { item ->
                     SimpleListItem(
-                        text = item,
+                        text = item.highlight(),
                         selected = isSelected,
                         active = isActive,
                         modifier =
