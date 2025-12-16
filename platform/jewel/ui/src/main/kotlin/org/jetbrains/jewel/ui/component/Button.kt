@@ -4,7 +4,6 @@ package org.jetbrains.jewel.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.interaction.HoverInteraction
 import androidx.compose.foundation.interaction.Interaction
@@ -21,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.onClick
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -33,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.takeOrElse
@@ -46,9 +45,12 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.coerceAtLeast
+import androidx.compose.ui.unit.dp
 import org.jetbrains.jewel.foundation.Stroke
 import org.jetbrains.jewel.foundation.modifier.border
 import org.jetbrains.jewel.foundation.modifier.thenIf
@@ -112,8 +114,6 @@ public fun DefaultButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        forceFocused = false,
-        onStateChange = {},
         interactionSource = interactionSource,
         style = style,
         textStyle = textStyle,
@@ -158,8 +158,6 @@ public fun OutlinedButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        forceFocused = false,
-        onStateChange = {},
         interactionSource = interactionSource,
         style = style,
         textStyle = textStyle,
@@ -689,7 +687,7 @@ private fun SplitButtonImpl(
     var buttonState by remember(interactionSource) { mutableStateOf(ButtonState.of(enabled = enabled)) }
     val focusRequester = remember { FocusRequester() }
 
-    Box {
+    Box(modifier = Modifier.semantics { isTraversalGroup = true }) {
         @Suppress("ModifierNotUsedAtRoot") // This is the "true" root, the box is only for the popup
         ButtonImpl(
             onClick = { if (enabled) onClick() },
@@ -713,26 +711,39 @@ private fun SplitButtonImpl(
                                 else -> false
                             }
                         }
-                    }
-                    .focusRequester(focusRequester),
+                    },
             enabled = enabled,
-            forceFocused = popupVisible,
-            onStateChange = { state -> buttonState = state },
             interactionSource = interactionSource,
             style = style.button,
             textStyle = textStyle,
             content = content,
             secondaryContent = {
+                Divider(
+                    orientation = Orientation.Vertical,
+                    thickness = style.metrics.dividerMetrics.thickness,
+                    modifier =
+                        Modifier.heightIn(min = style.button.metrics.minSize.height)
+                            .fillMaxHeight()
+                            .padding(vertical = style.metrics.dividerPadding)
+                            .align(Alignment.CenterStart),
+                    color = if (enabled) style.colors.dividerColor else style.colors.dividerDisabledColor,
+                )
+                
                 SplitButtonChevron(
                     style = style,
                     enabled = enabled,
                     isDefault = isDefault,
+                    forceFocused = popupVisible,
                     onChevronClick = {
                         secondaryOnClick()
                         popupVisible = !popupVisible
                         if (!buttonState.isFocused) focusRequester.requestFocus()
                     },
-                    modifier = Modifier.testTag("Jewel.SplitButton.SecondaryAction"),
+                    onStateChange = { state -> buttonState = state },
+                    modifier =
+                        Modifier.testTag("Jewel.SplitButton.SecondaryAction")
+                            .fillMaxHeight()
+                            .focusRequester(focusRequester),
                 )
             },
         )
@@ -776,29 +787,74 @@ private fun SplitButtonChevron(
     style: SplitButtonStyle,
     enabled: Boolean,
     isDefault: Boolean,
+    forceFocused: Boolean,
     onChevronClick: () -> Unit,
+    onStateChange: (ButtonState) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var buttonState by remember { mutableStateOf(ButtonState.of(enabled = enabled, focused = forceFocused)) }
+    val interactionSource = remember { MutableInteractionSource() }
+    // This helps with managing and keeping the button focus state in sync
+    // when the Composable is used for the SplitButton variant.
+    // This variant is the only one that overrides the default focus state
+    // according to the popup visibility.
+    var actuallyFocused by remember { mutableStateOf(false) }
+
+    LaunchedEffect(buttonState, onStateChange) { onStateChange(buttonState) }
+    LaunchedEffect(enabled) { buttonState = buttonState.copy(enabled = enabled) }
+    LaunchedEffect(forceFocused) {
+        buttonState = buttonState.copy(focused = if (forceFocused) true else actuallyFocused)
+    }
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            buttonState =
+                when (interaction) {
+                    is FocusInteraction -> {
+                        val isFocused = interaction is FocusInteraction.Focus
+                        actuallyFocused = isFocused
+                        buttonState.copy(focused = isFocused)
+                    }
+                    is HoverInteraction -> buttonState.copy(hovered = interaction is HoverInteraction.Enter)
+                    is PressInteraction -> buttonState.copy(pressed = interaction is PressInteraction.Press)
+                    else -> buttonState
+                }
+        }
+    }
+
+    val shape =
+        RoundedCornerShape(
+            topStart = CornerSize(0.dp),
+            bottomStart = CornerSize(0.dp),
+            topEnd = style.button.metrics.cornerSize,
+            bottomEnd = style.button.metrics.cornerSize,
+        )
+    val outerBorderWidth = if (isDefault) 0.dp else style.button.metrics.borderWidth
+
     Box(
         modifier
+            .fillMaxHeight()
+            .padding(top = outerBorderWidth, end = outerBorderWidth, bottom = outerBorderWidth)
             .width(style.button.metrics.minSize.height)
-            .focusable(false)
-            .focusProperties { canFocus = false }
+            .heightIn(min = style.button.metrics.minSize.height)
             .clickable(
                 enabled = enabled,
                 onClick = onChevronClick,
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interactionSource,
                 indication = null,
                 role = Role.Button,
             )
+            .focusOutline(
+                state = buttonState,
+                outlineShape = shape,
+                alignment = if (isDefault) Stroke.Alignment.Outside else Stroke.Alignment.Inside,
+                expand =
+                    if (isDefault) {
+                        style.button.metrics.focusOutlineExpand
+                    } else {
+                        0.dp
+                    },
+            )
     ) {
-        Divider(
-            orientation = Orientation.Vertical,
-            thickness = style.metrics.dividerMetrics.thickness,
-            modifier =
-                Modifier.fillMaxHeight().padding(vertical = style.metrics.dividerPadding).align(Alignment.CenterStart),
-            color = if (enabled) style.colors.dividerColor else style.colors.dividerDisabledColor,
-        )
         Icon(
             key = AllIconsKeys.General.ChevronDown,
             contentDescription = "Chevron",
@@ -817,8 +873,6 @@ private fun SplitButtonChevron(
 private fun ButtonImpl(
     onClick: () -> Unit,
     enabled: Boolean,
-    forceFocused: Boolean,
-    onStateChange: (ButtonState) -> Unit,
     interactionSource: MutableInteractionSource,
     style: ButtonStyle,
     textStyle: TextStyle,
@@ -826,18 +880,11 @@ private fun ButtonImpl(
     secondaryContent: @Composable (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    var buttonState by
-        remember(interactionSource) { mutableStateOf(ButtonState.of(enabled = enabled, focused = forceFocused)) }
+    var buttonState by remember(interactionSource) { mutableStateOf(ButtonState.of(enabled = enabled)) }
 
     remember(enabled) { buttonState = buttonState.copy(enabled = enabled) }
-    // This helps with managing and keeping the button focus state in sync
-    // when the Composable is used for the SplitButton variant.
-    // This variant is the only one that overrides the default focus state
-    // according to the popup visibility.
-    var actuallyFocused by remember { mutableStateOf(false) }
-    remember(forceFocused) { buttonState = buttonState.copy(focused = if (forceFocused) true else actuallyFocused) }
 
-    LaunchedEffect(interactionSource, onStateChange) {
+    LaunchedEffect(interactionSource) {
         interactionSource.interactions.collect { interaction ->
             buttonState =
                 when (interaction) {
@@ -847,44 +894,24 @@ private fun ButtonImpl(
 
                     is HoverInteraction.Enter -> buttonState.copy(hovered = true)
                     is HoverInteraction.Exit -> buttonState.copy(hovered = false)
-                    is FocusInteraction.Focus -> {
-                        actuallyFocused = true
-                        buttonState.copy(focused = true)
-                    }
-
-                    is FocusInteraction.Unfocus -> {
-                        actuallyFocused = false
-                        buttonState.copy(focused = forceFocused)
-                    }
+                    is FocusInteraction -> buttonState.copy(focused = interaction is FocusInteraction.Focus)
 
                     else -> buttonState
                 }
-            onStateChange(buttonState)
         }
     }
 
     val shape = RoundedCornerShape(style.metrics.cornerSize)
     val colors = style.colors
     val borderColor by colors.borderFor(buttonState)
+    val backgroundColor by colors.backgroundFor(buttonState)
 
     Box(
         modifier =
             modifier
-                .clickable(
-                    onClick = onClick,
-                    enabled = enabled,
-                    role = Role.Button,
-                    interactionSource = interactionSource,
-                    indication = null,
-                )
-                .background(colors.backgroundFor(buttonState).value, shape)
-                .focusOutline(
-                    state = buttonState,
-                    outlineShape = shape,
-                    alignment = style.focusOutlineAlignment,
-                    expand = style.metrics.focusOutlineExpand,
-                )
-                .border(Stroke.Alignment.Inside, style.metrics.borderWidth, borderColor, shape),
+                .background(backgroundColor, shape)
+                .border(Stroke.Alignment.Inside, style.metrics.borderWidth, borderColor, shape)
+                .semantics { isTraversalGroup = true },
         propagateMinConstraints = true,
     ) {
         val contentColor by colors.contentFor(buttonState)
@@ -894,14 +921,29 @@ private fun ButtonImpl(
             LocalTextStyle provides textStyle.copy(color = contentColor.takeOrElse { textStyle.color }),
         ) {
             Row(
-                Modifier.defaultMinSize(style.metrics.minSize.width).height(style.metrics.minSize.height),
+                modifier =
+                    Modifier.semantics { isTraversalGroup = true },
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    Modifier.padding(style.metrics.padding).thenIf(secondaryContent != null) {
-                        weight(1f, fill = false)
-                    }
+                    Modifier.clickable(
+                            onClick = onClick,
+                            enabled = enabled,
+                            role = Role.Button,
+                            interactionSource = interactionSource,
+                            indication = null,
+                        )
+                        .focusOutline(
+                            state = buttonState,
+                            outlineShape = shape,
+                            alignment = style.focusOutlineAlignment,
+                            expand = style.metrics.focusOutlineExpand,
+                        )
+                        .defaultMinSize(style.metrics.minSize.width)
+                        .height(style.metrics.minSize.height)
+                        .padding(style.metrics.padding)
+                        .thenIf(secondaryContent != null) { weight(1f, fill = false) }
                 ) {
                     content()
                 }
